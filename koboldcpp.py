@@ -1555,7 +1555,7 @@ def sd_comfyui_tranform_params(genparams):
     return genparams
 
 
-def sd_apply_resolution_limits(width, height, sdclamped, sdrestrictsquare):
+def sd_apply_resolution_limits(width, height, sdclamped, sdrestrictsquare=0, sdclampmode='strict'):
     small = max(width, 64)
     big = max(height, 64)
     landscape = (width > height)
@@ -1571,6 +1571,13 @@ def sd_apply_resolution_limits(width, height, sdclamped, sdrestrictsquare):
 
     small = rounddown_64(small)
     big = rounddown_64(big)
+
+    if sdclamped and sdrestrictsquare <= 0:
+        # see if sdclamped shall act as sdrestrictsquare; otherwise,
+        # let sdrestrictsquare apply the per-model default
+        if sdclampmode == 'lenient':
+            sdrestrictsquare = max(sdclamped, 512)
+            sdclamped = 0
 
     if sdclamped:
         reslimit = int(sdclamped)
@@ -1675,7 +1682,7 @@ def sd_generate(genparams):
     cfg_scale = (1 if cfg_scale < 1 else (25 if cfg_scale > 25 else cfg_scale))
     sample_steps = (1 if sample_steps < 1 else (forced_steplimit if sample_steps > forced_steplimit else sample_steps))
 
-    width, height = sd_apply_resolution_limits(width, height, args.sdclamped, args.sdrestrictsquare)
+    width, height = sd_apply_resolution_limits(width, height, args.sdclamped, args.sdrestrictsquare, args.sdclampmode)
 
     if args.sdclamped:
         sample_steps = (40 if sample_steps > 40 else sample_steps)
@@ -4306,6 +4313,7 @@ def show_gui():
     sd_vaeauto_var = ctk.IntVar(value=0)
     sd_notile_var = ctk.IntVar(value=0)
     sd_clamped_var = ctk.StringVar(value="0")
+    sd_clamp_mode_var = ctk.StringVar(value="")
     sd_restrict_square_var = ctk.StringVar(value="0")
     sd_threads_var = ctk.StringVar(value=str(default_threads))
     sd_quant_var = ctk.IntVar(value=0)
@@ -4393,6 +4401,7 @@ def show_gui():
         entry = ctk.CTkEntry(parent, width=width, textvariable=var)
         entry.grid(row=row, column=(0 if singleline else 1), padx=padx, sticky="nw")
         return entry, label
+
 
     #file dialog types: 0=openfile,1=savefile,2=opendir
     def makefileentry(parent, text, searchtext, var, row=0, width=200, filetypes=[], onchoosefile=None, singlerow=False, singlecol=True, dialog_type=0, tooltiptxt=""):
@@ -5000,6 +5009,11 @@ def show_gui():
         "Limit generation steps and resolution settings for shared use.\nSet to 0 to disable, otherwise value is the size limit (min 512px).")
     row += 2
 
+    selectclampmodelabel = makelabel(images_tab, "Clamped Mode Policy:", row, 0, "Adjust clamped mode behavior.\nLenient allows width-height tradeoffs, eg. 640 allows 640x640 and 512x768.\nStrict, or empty (the default), will limit dimensions directly.", padx=8)
+    selectclampmodebox = ctk.CTkComboBox(images_tab, values=['', 'strict', 'lenient'], width=80,variable=sd_clamp_mode_var, state="readonly")
+    selectclampmodebox.grid(row=row, column=0, padx=290, stick="nw")
+    row += 2
+
     makelabelentry(images_tab, "Restrict Square Size:", sd_restrict_square_var, row, 50, padx=290,singleline=True,tooltip="Square image size restriction, to protect the server against memory crashes.\nAllows width-height tradeoffs, eg. 640 allows 640x640 and 512x768\nLeave at 0 for the default value: 832 for SD1.5/SD2, 1024 otherwise.")
     row += 2
 
@@ -5270,6 +5284,9 @@ def show_gui():
 
         args.sdthreads = (0 if sd_threads_var.get()=="" else int(sd_threads_var.get()))
         args.sdclamped = (0 if int(sd_clamped_var.get())<=0 else int(sd_clamped_var.get()))
+        args.sdclampmode = ""
+        if sd_clamp_mode_var.get() in ["strict", "lenient"]:
+             args.sdclampmode = sd_clamp_mode_var.get()
         args.sdrestrictsquare = (0 if int(sd_restrict_square_var.get())<=0 else int(sd_restrict_square.get()))
         args.sdnotile = (True if sd_notile_var.get()==1 else False)
         if sd_vaeauto_var.get()==1:
@@ -5474,6 +5491,7 @@ def show_gui():
 
         sd_model_var.set(dict["sdmodel"] if ("sdmodel" in dict and dict["sdmodel"]) else "")
         sd_clamped_var.set(int(dict["sdclamped"]) if ("sdclamped" in dict and dict["sdclamped"]) else 0)
+        sd_clamp_mode_var.set(dict["sdclampmode"] if ("sdclampmode" in dict and dict["sdclampmode"]) else '')
         sd_restrict_square_var.set(int(dict["sdrestrictsquare"]) if ("sdrestrictsquare" in dict and dict["sdrestrictsquare"]) else 0)
         sd_threads_var.set(str(dict["sdthreads"]) if ("sdthreads" in dict and dict["sdthreads"]) else str(default_threads))
         sd_quant_var.set(1 if ("sdquant" in dict and dict["sdquant"]) else 0)
@@ -7215,6 +7233,7 @@ if __name__ == '__main__':
     sdparsergroup.add_argument("--sdthreads", metavar=('[threads]'), help="Use a different number of threads for image generation if specified. Otherwise, has the same value as --threads.", type=int, default=0)
     sdparsergroup.add_argument("--sdclamped", metavar=('[maxres]'), help="If specified, limit generation steps and resolution settings for shared use. Accepts an extra optional parameter that indicates maximum resolution (eg. 768 clamps to 768x768, min 512px, disabled if 0).", nargs='?', const=512, type=int, default=0)
     sdparsergroup.add_argument("--sdrestrictsquare", metavar=('[maxres]'), help=f"If specified, restrict square image sides to this value, in pixels, to avoid server crashes related to excessive memory usage. Similar to --sdclamped, but allows trade-offs between width and height (e.g. 640 would allow 640x640, 512x768 and 768x512 images). If 0 or unspecified, use a model-specific safe value: 832 for SD1.5/SD2, 1024 otherwise.", type=int, default=0)
+    sdparsergroup.add_argument("--sdclampmode", metavar=('[strict|lenient]'), help="Adjust --sdclamped behavior. 'strict' (default for --sdclamped > 0) limits dimensions directly; 'lenient' limit square image dimensions, while allowing trade-offs between width and height (eg. 640 would allow 640x640 and 512x768 images); for --sdclampmode 0 or undefined, a model-specific safe value is used: 832 for SD1.5/SD2, 1024 otherwise.", nargs='?', const=512, type=int, default=0)
     sdparsergroup.add_argument("--sdt5xxl", metavar=('[filename]'), help="Specify a T5-XXL safetensors model for use in SD3 or Flux. Leave blank if prebaked or unused.", default="")
     sdparsergroup.add_argument("--sdclipl", metavar=('[filename]'), help="Specify a Clip-L safetensors model for use in SD3 or Flux. Leave blank if prebaked or unused.", default="")
     sdparsergroup.add_argument("--sdclipg", metavar=('[filename]'), help="Specify a Clip-G safetensors model for use in SD3. Leave blank if prebaked or unused.", default="")
