@@ -1813,7 +1813,7 @@ def sd_generate(genparams):
     seed = tryparseint(genparams.get("seed", -1),-1)
     if seed < 0:
         seed = random.randint(100000, 999999)
-    sample_method = genparams.get("sampler_name", "k_euler_a")
+    sample_method = genparams.get("sampler_name", "default")
     clip_skip = tryparseint(genparams.get("clip_skip", -1),-1)
     extra_images_arr = genparams.get("extra_images", [])
     extra_images_arr = ([] if not extra_images_arr else extra_images_arr)
@@ -3375,7 +3375,7 @@ Change Mode<br>
             if friendlysdmodelname=="inactive" or fullsdmodelpath=="":
                 response_body = (json.dumps([]).encode())
             else:
-                response_body = (json.dumps([{"name":"Euler","aliases":["k_euler"],"options":{}},{"name":"Euler a","aliases":["k_euler_a","k_euler_ancestral"],"options":{}},{"name":"Heun","aliases":["k_heun"],"options":{}},{"name":"DPM2","aliases":["k_dpm_2"],"options":{}},{"name":"DPM++ 2M","aliases":["k_dpmpp_2m"],"options":{}},{"name":"DDIM","aliases":["ddim"],"options":{}},{"name":"LCM","aliases":["k_lcm"],"options":{}}]).encode())
+                response_body = (json.dumps([{"name":"Default","aliases":["default"],"options":{}},{"name":"Euler","aliases":["k_euler"],"options":{}},{"name":"Euler a","aliases":["k_euler_a","k_euler_ancestral"],"options":{}},{"name":"Heun","aliases":["k_heun"],"options":{}},{"name":"DPM2","aliases":["k_dpm_2"],"options":{}},{"name":"DPM++ 2M","aliases":["k_dpmpp_2m"],"options":{}},{"name":"DDIM","aliases":["ddim"],"options":{}},{"name":"LCM","aliases":["k_lcm"],"options":{}}]).encode())
         elif self.path.endswith('/sdapi/v1/latent-upscale-modes'):
            response_body = (json.dumps([]).encode())
         elif self.path.endswith('/sdapi/v1/upscalers'):

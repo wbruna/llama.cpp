@@ -59,7 +59,7 @@ struct SDParams {
     int width         = 512;
     int height        = 512;
 
-    sample_method_t sample_method = EULER_A;
+    sample_method_t sample_method = SAMPLE_METHOD_DEFAULT;
     int sample_steps              = 20;
     float strength                = 0.75f;
     int64_t seed                  = 42;
@@ -442,23 +442,29 @@ static void sd_fix_resolution(int &width, int &height, int img_hard_limit, int i
 
 static enum sample_method_t sampler_from_name(const std::string& sampler)
 {
-    if(sampler=="euler a"||sampler=="k_euler_a"||sampler=="euler_a") //all lowercase
+    // all lowercase
+    enum sample_method_t result = str_to_sample_method(sampler.c_str());
+    if (result != sample_method_t:SAMPLE_METHOD_COUNT)
+    {
+        return result;
+    }
+    else if(sampler=="euler a"||sampler=="k_euler_a")
     {
         return sample_method_t::EULER_A;
     }
-    else if(sampler=="euler"||sampler=="k_euler")
+    else if(sampler=="k_euler")
     {
         return sample_method_t::EULER;
     }
-    else if(sampler=="heun"||sampler=="k_heun")
+    else if(sampler=="k_heun")
     {
         return sample_method_t::HEUN;
     }
-    else if(sampler=="dpm2"||sampler=="k_dpm_2")
+    else if(sampler=="k_dpm_2")
     {
         return sample_method_t::DPM2;
     }
-    else if(sampler=="lcm"||sampler=="k_lcm")
+    else if(sampler=="k_lcm")
     {
         return sample_method_t::LCM;
     }
@@ -472,7 +478,7 @@ static enum sample_method_t sampler_from_name(const std::string& sampler)
     }
     else
     {
-        return sample_method_t::EULER_A;
+        return sample_method_t::SAMPLE_METHOD_DEFAULT;
     }
 }
 
@@ -512,6 +518,10 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     sd_params->sample_method = sampler_from_name(inputs.sample_method);
 
     bool is_img2img = img2img_data != "";
+
+    if (sd_params->sample_method == SAMPLE_METHOD_DEFAULT) {
+        sd_params->sample_method = sd_get_default_sample_method(sd_ctx);
+    }
 
     auto loadedsdver = get_loaded_sd_version(sd_ctx);
     if (loadedsdver == SDVersion::VERSION_FLUX)
