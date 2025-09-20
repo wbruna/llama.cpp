@@ -337,6 +337,9 @@ static std::string get_image_params(const sd_img_gen_params_t & params) {
         << " | Seed: " << params.seed
         << " | Size: " << params.width << "x" << params.height
         << " | Sampler: " << sd_sample_method_name(params.sample_params.sample_method)
+        << (params.sample_params.scheduler != scheduler_t::DEFAULT
+            ? std::string(" ") + sd_schedule_name(params.sample_params.scheduler)
+            : std::string(""))
         << " | Clip skip: " << params.clip_skip
         << " | Model: " << sdmodelfilename
         << " | Version: KoboldCpp";
@@ -482,6 +485,18 @@ static enum sample_method_t sampler_from_name(const std::string& sampler)
     }
 }
 
+static enum scheduler_t scheduler_from_name(const char * scheduler)
+{
+    if (scheduler) {
+        enum scheduler_t result = str_to_scheduler(scheduler);
+        if (result != scheduler_t:SCHEDULE_COUNT)
+        {
+            return result;
+        }
+    }
+    return scheduler_t::DEFAULT;
+}
+
 sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
 {
     sd_generation_outputs output;
@@ -516,6 +531,8 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     sd_params->strength = inputs.denoising_strength;
     sd_params->clip_skip = inputs.clip_skip;
     sd_params->sample_method = sampler_from_name(inputs.sample_method);
+    sd_params->scheduler = scheduler_from_name(inputs.scheduler);
+    sd_params->denoising_strength = inputs.denoising_strength;
 
     bool is_img2img = img2img_data != "";
 
@@ -710,6 +727,7 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     params.width = sd_params->width;
     params.height = sd_params->height;
     params.sample_params.sample_method = sd_params->sample_method;
+    params.sample_params.scheduler = sd_params->scheduler;
     params.sample_params.sample_steps = sd_params->sample_steps;
     params.seed = sd_params->seed;
     params.strength = sd_params->strength;
