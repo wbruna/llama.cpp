@@ -1831,6 +1831,23 @@ def sd_parse_meta_field(prompt, config=False):
         pass
     return kv_dict
 
+# (KEY1:::VALUE1) (KEY2:::VALUE2)
+def sd_parse_prompt_options(prompt, config=False):
+    pattern = re.compile(r'\(([a-z_-]+):::([A-Za-z_0-9+.-]*)\)')
+    matches = list(pattern.finditer(prompt))
+    kv_dict = sd_process_meta_fields([(m.group(1), m.group(2)) for m in matches], config)
+    prompt = pattern.sub('', prompt)
+    return prompt, kv_dict
+
+
+def sd_hack_prompt_options(genparams):
+    if 'prompt' in genparams:
+        prompt = genparams['prompt'] or ''
+        clean_prompt, parsed_options = sd_parse_prompt_options(prompt)
+        genparams['prompt'] = clean_prompt
+        if args.debugmode:
+            genparams.update(parsed_options)
+
 
 def sd_generate(genparams):
     global maxctx, args, currentusergenkey, totalgens, pendingabortkey, chatcompl_adapter
@@ -4207,6 +4224,7 @@ Change Mode<br>
                             genparams = sd_comfyui_tranform_params(genparams)
                         elif is_oai_imggen:
                             genparams = sd_oai_tranform_params(genparams)
+                        sd_hack_prompt_options(genparams)
                         gen = sd_generate(genparams)
                         gendat = gen["data"]
                         genanim = gen["animated"]
