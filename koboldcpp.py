@@ -346,6 +346,7 @@ class sd_generation_inputs(ctypes.Structure):
                 ("remove_limits", ctypes.c_bool),
                 ("circular_x", ctypes.c_bool),
                 ("circular_y", ctypes.c_bool),
+                ("vae_tile_overlap", ctypes.c_float),
                 ("upscale", ctypes.c_bool)]
 
 class sd_generation_outputs(ctypes.Structure):
@@ -2029,6 +2030,7 @@ def gendefaults_parse_meta_field(input_str):
         'sampler': 'sampler_name',
         'sampling-method': 'sampler_name',
         'timestep-shift': 'shifted_timestep',
+        'vae-tile-overlap': 'vae_tile_overlap',
     }
     if not isinstance(input_str, str) or not input_str.strip():
         return {}
@@ -2114,6 +2116,8 @@ def sd_generate(genparams):
     extra_images_arr = [img for img in extra_images_arr if img not in (None, "")]
     extra_images_arr = extra_images_arr[:extra_images_max]
 
+    vae_tile_overlap = tryparsefloat(genparams.get("vae_tile_overlap", -1.0), None)
+
     #clean vars
     cfg_scale = (1 if cfg_scale < 1 else (forced_maxcfg if cfg_scale > forced_maxcfg else cfg_scale))
     if distilled_guidance is not None and (distilled_guidance < 0 or distilled_guidance > 100):
@@ -2158,6 +2162,7 @@ def sd_generate(genparams):
     inputs.circular_x = tryparseint(adapter_obj.get("circular_x", genparams.get("circular_x",0)),0)
     inputs.circular_y = tryparseint(adapter_obj.get("circular_y", genparams.get("circular_y",0)),0)
     inputs.upscale = (True if tryparseint(genparams.get("enable_hr", 0),0) else False)
+    inputs.vae_tile_overlap = vae_tile_overlap
     ret = handle.sd_generate(inputs)
     data_main = ""
     data_extra = ""

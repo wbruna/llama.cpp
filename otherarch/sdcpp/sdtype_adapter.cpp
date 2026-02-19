@@ -78,6 +78,8 @@ struct SDParams {
 
     bool chroma_use_dit_mask     = true;
 
+    sd_tiling_params_t vae_tiling_params = {false, 0, 0, 0.5f, 0.0f, 0.0f};
+
     std::string lora_path;
     sd_lora_t lora_spec;
     uint32_t lora_count;
@@ -753,6 +755,10 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     }
     sd_image_t * results;
 
+    // initialize early to get defaults from the library
+    sd_img_gen_params_t params = {};
+    sd_img_gen_params_init (&params);
+
     //sanitize prompts, remove quotes and limit lengths
     std::string cleanprompt = clean_input_prompt(inputs.prompt);
     std::string cleannegprompt = clean_input_prompt(inputs.negative_prompt);
@@ -861,8 +867,19 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
             inputs.width, inputs.height, sd_params->width, sd_params->height);
     }
 
+    sd_params->vae_tiling_params = params.vae_tiling_params;
+
     // trigger tiling by image area, the memory used for the VAE buffer is 6656 bytes per image pixel, default 768x768
     bool dotile = (sd_params->width*sd_params->height > cfg_tiled_vae_threshold*cfg_tiled_vae_threshold);
+    sd_params->vae_tiling_params.enabled = dotile;
+
+    if (inputs.vae_tile_overlap != -1.0f) {
+        if (inputs.vae_tile_overlap >= 0.f && inputs.vae_tile_overlap <= 0.5f) {
+            sd_params->vae_tiling_params.target_overlap = inputs.vae_tile_overlap;
+        } else {
+            printf("\nKCPP SD: ignoring invalid VAE tiling overlap %f\n", inputs.vae_tile_overlap);
+        }
+    }
 
     //for img2img
     sd_image_t input_image = {0,0,0,nullptr};
@@ -986,8 +1003,6 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
         }
     }
 
-    sd_img_gen_params_t params = {};
-    sd_img_gen_params_init (&params);
     params.batch_count = 1;
     params.auto_resize_ref_image = true;
     params.prompt = sd_params->prompt.c_str();
@@ -1006,8 +1021,9 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     params.sample_params.shifted_timestep = sd_params->shifted_timestep;
     params.seed = sd_params->seed;
     params.strength = sd_params->strength;
-    params.vae_tiling_params.enabled = dotile;
     params.batch_count = 1;
+
+    params.vae_tiling_params = sd_params->vae_tiling_params;
 
     // needs to be "reapplied" because sdcpp tracks previously applied LoRAs
     // and weights, and apply/unapply the differences at each gen

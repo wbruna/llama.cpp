@@ -224,6 +224,7 @@ struct sd_generation_inputs
     const bool remove_limits = false;
     const bool circular_x = false;
     const bool circular_y = false;
+    const float vae_tile_overlap = -1.0f;
     const bool upscale = false;
 };
 struct sd_generation_outputs
