@@ -2153,6 +2153,51 @@ def prepare_lora_multipliers(request_list):
 
     return result
 
+def extract_loras_from_prompt(prompt):
+
+    pattern = r'<lora:([^:>]+):([^>]+)>'
+    lora_data = []
+
+    matches = list(re.finditer(pattern, prompt))
+
+    for match in matches:
+        raw_path = match.group(1)
+        raw_mul = match.group(2)
+        try:
+            mul = float(raw_mul)
+        except ValueError:
+            continue
+
+        is_high_noise = False
+        prefix = "|high_noise|"
+        if raw_path.startswith(prefix):
+            raw_path = raw_path[len(prefix):]
+            is_high_noise = True
+
+        lora_data.append({
+            'name': raw_path,
+            'multiplier': mul,
+            'is_high_noise': is_high_noise,
+            })
+
+        prompt = prompt.replace(match.group(0), "", 1)
+
+    return prompt, lora_data
+
+def lora_map_name_to_path(request_list):
+    name2path = {}
+    for _, name, path, _ in imglorainfo:
+        name2path[name] = path
+    result = []
+    for req in request_list:
+        out = dict(req)
+        name = out.pop('name')
+        path = name2path.get(name)
+        if path:
+            out['path'] = path
+            result.append(out)
+    return result
+
 def sd_generate(genparams):
     global maxctx, args, currentusergenkey, totalgens, pendingabortkey, chatcompl_adapter
 
@@ -5173,6 +5218,12 @@ Change Mode<br>
                             genparams = sd_comfyui_tranform_params(genparams)
                         elif is_oai_imggen:
                             genparams = sd_oai_transform_params(genparams)
+                        if not genparams.get('lora'):
+                            # process <lora:name:multiplier> syntax
+                            prompt, loras = extract_loras_from_prompt(genparams['prompt'])
+                            if loras:
+                                genparams['prompt'] = prompt
+                                genparams['lora'] = lora_map_name_to_path(loras)
                         gen = sd_generate(genparams)
                         gendat = gen["data"]
                         genanim = gen["animated"]
