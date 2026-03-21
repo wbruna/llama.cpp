@@ -2238,9 +2238,8 @@ def sd_upscale(genparams):
     inputs.init_images = init_images.encode("UTF-8")
     inputs.upscaling_resize = tryparseint(genparams.get("upscaling_resize", 2),2) # how many times to upscale
     ret = handle.sd_upscale(inputs)
-    data_main = ""
-    if ret.status==1:
-        data_main = ret.data.decode("UTF-8","ignore")
+    parsed = json.loads(ret.data.decode("UTF-8", "ignore")) if ret.status==1 else {}
+    data_main = parsed.get("data", "")
     return data_main
 
 def sanitize_lora_list(sdlora):
@@ -2458,13 +2457,10 @@ def sd_generate(genparams):
     inputs.lora_multipliers = (ctypes.c_float * inputs.lora_len)(*lora_multipliers)
 
     ret = handle.sd_generate(inputs)
-    data_main = ""
-    data_extra = ""
-    animated = False
-    if ret.status==1:
-        data_main = ret.data.decode("UTF-8","ignore")
-        data_extra = ret.data_extra.decode("UTF-8","ignore")
-        animated = True if ret.animated else False
+    parsed = json.loads(ret.data.decode("UTF-8", "ignore")) if ret.status==1 else {}
+    data_main = parsed.get("data", "")
+    data_extra = parsed.get("data_extra", "")
+    animated = parsed.get("animated", False)
     return {"animated": animated, "data":data_main, "data_extra":data_extra}
 
 

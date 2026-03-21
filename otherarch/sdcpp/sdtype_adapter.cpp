@@ -930,18 +930,19 @@ static void parse_cache_options(sd_cache_params_t & params, const std::string& c
     }
 }
 
+static sd_generation_outputs sd_generation_error_output(const char * message) {
+    printf("\n%s\n", message);
+    sd_generation_outputs output;
+    output.status = 0;
+    output.data = "{\"status\": 0}";
+    return output;
+}
+
 sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
 {
-    sd_generation_outputs output;
-
     if(sd_ctx == nullptr || sd_params == nullptr)
     {
-        printf("\nWarning: KCPP image generation not initialized!\n");
-        output.data = "";
-        output.data_extra = "";
-        output.animated = 0;
-        output.status = 0;
-        return output;
+        return sd_generation_error_output("Warning: KCPP image generation not initialized!");
     }
     sd_image_t * results;
 
@@ -1329,12 +1330,7 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
         input_image_buffer = load_image_from_b64(img2img_data,nx,ny,img2imgW,img2imgH,3);
 
         if (!input_image_buffer) {
-            printf("\nKCPP SD: load image from memory failed!\n");
-            output.data = "";
-            output.data_extra = "";
-            output.animated = 0;
-            output.status = 0;
-            return output;
+            return sd_generation_error_output("KCPP SD: load image from memory failed!");
         }
 
         if(img2img_mask!="")
@@ -1390,17 +1386,16 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     }
 
     if (results == NULL) {
-        printf("\nKCPP SD generate failed!\n");
-        output.data = "";
-        output.data_extra = "";
-        output.animated = 0;
-        output.status = 0;
-        return output;
+        return sd_generation_error_output("KCPP SD generate failed!");
     }
+
+    recent_data = "";
 
     bool wasanim = false;
     sd_image_t upscaled_image;
     upscaled_image.data = nullptr;
+    std::string gen_data;
+    std::string gen_data2;
 
     for (int i = 0; i < params.batch_count; i++) {
         if (results[i].data == NULL) {
@@ -1441,18 +1436,18 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
                     printf("Save Failed!\n");
                 }
             }
-            recent_data = "";
-            recent_data2 = "";
+            gen_data = "";
+            gen_data2 = "";
             if(status==0 && out_len>0)
             {
-                recent_data = kcpp_base64_encode(out_data, out_len);
+                gen_data = kcpp_base64_encode(out_data, out_len);
                 free(out_data);
             }
             if (status2 == 0 && out_len2 > 0) {
-                if (recent_data == "") {
-                    recent_data = kcpp_base64_encode(out_data2, out_len2);
+                if (gen_data == "") {
+                    gen_data = kcpp_base64_encode(out_data2, out_len2);
                 } else {
-                    recent_data2 = kcpp_base64_encode(out_data2, out_len2);
+                    gen_data2 = kcpp_base64_encode(out_data2, out_len2);
                 }
                 free(out_data2);
             }
@@ -1472,8 +1467,8 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
 
             if (png != NULL)
             {
-                recent_data = kcpp_base64_encode(png,out_data_len);
-                recent_data2 = "";
+                gen_data = kcpp_base64_encode(png,out_data_len);
+                gen_data2 = "";
                 free(png);
             }
         }
@@ -1489,9 +1484,15 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     }
 
     free(results);
+
+    nlohmann::json jsonout;
+    jsonout["data"] = gen_data;
+    jsonout["data_extra"] = gen_data2;
+    jsonout["animated"] = wasanim;
+    recent_data = jsonout.dump();
+
+    sd_generation_outputs output;
     output.data = recent_data.c_str();
-    output.data_extra = recent_data2.c_str();
-    output.animated = (wasanim?1:0);
     output.status = 1;
     total_img_gens += 1;
     if(!sd_is_quiet)
@@ -1504,19 +1505,9 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
 
 sd_generation_outputs sdtype_upscale(const sd_upscale_inputs inputs)
 {
-    sd_generation_outputs output;
-    output.data = "";
-    output.data_extra = "";
-    output.animated = 0;
-    output.status = 0;
     if(sd_ctx == nullptr || upscaler_ctx == nullptr || sd_params == nullptr)
     {
-        printf("\nWarning: KCPP image upscaling not initialized!\n");
-        output.data = "";
-        output.data_extra = "";
-        output.animated = 0;
-        output.status = 0;
-        return output;
+        return sd_generation_error_output("Warning: KCPP image upscaling not initialized!");
     }
 
     std::string rawb64 = inputs.init_images;
@@ -1531,6 +1522,7 @@ sd_generation_outputs sdtype_upscale(const sd_upscale_inputs inputs)
     sd_image_t upscaled_image;
     source_img.data = nullptr;
     upscaled_image.data = nullptr;
+    std::string result;
     if(upscale_src_buffer)
     {
         source_img.width = nx;
@@ -1543,17 +1535,24 @@ sd_generation_outputs sdtype_upscale(const sd_upscale_inputs inputs)
         unsigned char * png = stbi_write_png_to_mem(upscaled_image.data, 0, upscaled_image.width, upscaled_image.height, upscaled_image.channel, &out_data_len, nullptr);
         if (png != NULL)
         {
-            recent_data = kcpp_base64_encode(png,out_data_len);
-            recent_data2 = "";
+            result = kcpp_base64_encode(png,out_data_len);
             free(png);
         }
         free(upscaled_image.data);
-        output.data = recent_data.c_str();
-        output.data_extra = recent_data2.c_str();
-        output.animated = 0;
-        output.status = 1;
+
     }
 
+    if (result == "") {
+        return sd_generation_error_output("Warning: KCPP failed to upscale image");
+    }
+
+    nlohmann::json jsonout;
+    jsonout["data"] = result;
+    recent_data = jsonout.dump();
+
+    sd_generation_outputs output;
+    output.data = recent_data.c_str();
+    output.status = 1;
     return output;
 }
 
