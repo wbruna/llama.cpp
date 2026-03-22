@@ -482,9 +482,6 @@ bool sdtype_load_model(const sd_load_model_inputs inputs) {
         is_vid_model = true;
     }
 
-    std::filesystem::path mpath(inputs.model_filename);
-    sdmodelfilename = mpath.filename().string();
-
     // preload the LoRAs with the initial multipliers
     std::vector<sd_lora_t> lora_specs = sd_params->lora_map.get_lora_specs(lora_dynamic&& lora_cache);
     if(lora_specs.size()>0)
@@ -516,6 +513,10 @@ bool sdtype_load_model(const sd_load_model_inputs inputs) {
     return true;
 }
 
+static std::string friendly_model_name(std::filesystem::path model_path) {
+    return model_path.filename().stem().string();
+}
+
 std::string clean_input_prompt(const std::string& input) {
     std::string result;
     result.reserve(input.size());
@@ -540,7 +541,11 @@ static std::string get_scheduler_name(scheduler_t scheduler, bool as_sampler_suf
     }
 }
 
-static std::string get_image_params(const sd_img_gen_params_t & params, const std::string& lora_meta) {
+static std::string get_image_params(const sd_img_gen_params_t & params, const std::string& lora_meta, int seed_offset) {
+    std::string model = sd_params->model_path;
+    if (model.empty())
+        model = sd_params->diffusion_model_path;
+    model = friendly_model_name(model);
     std::stringstream ss;
     ss << std::setprecision(3)
         <<    "Prompt: " << params.prompt << lora_meta
@@ -548,7 +553,7 @@ static std::string get_image_params(const sd_img_gen_params_t & params, const st
         << " | Steps: " << params.sample_params.sample_steps
         << " | CFGScale: " << params.sample_params.guidance.txt_cfg
         << " | Guidance: " << params.sample_params.guidance.distilled_guidance
-        << " | Seed: " << params.seed
+        << " | Seed: " << (params.seed + seed_offset)
         << " | Size: " << params.width << "x" << params.height
         << " | Sampler: " << sd_sample_method_name(params.sample_params.sample_method)
         << get_scheduler_name(params.sample_params.scheduler, true);
@@ -557,7 +562,7 @@ static std::string get_image_params(const sd_img_gen_params_t & params, const st
     if (params.sample_params.flow_shift > 0.f && params.sample_params.flow_shift != INFINITY)
         ss << "| Flow Shift: " << params.sample_params.flow_shift;
     ss  << " | Clip skip: " << params.clip_skip
-        << " | Model: " << sdmodelfilename
+        << " | Model: " << model
         << " | Version: KoboldCpp";
     return ss.str();
 }
@@ -1212,7 +1217,6 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     params.strength = sd_params->strength;
     params.vae_tiling_params.enabled = dotile;
     parse_cache_options(params.cache, sd_params->cache_mode, sd_params->cache_options);
-    params.batch_count = 1;
 
     LoraMap lora_map = sd_params->lora_map;
     if (sd_params->lora_dynamic) {
@@ -1390,12 +1394,36 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
     }
 
     recent_data = "";
+    nlohmann::json jsonout;
+    bool wanimate = (vid_req_frames>1 && generated_num_results>1 && is_vid_model);
 
-    bool wasanim = false;
-    sd_image_t upscaled_image;
-    upscaled_image.data = nullptr;
-    std::string gen_data;
-    std::string gen_data2;
+    nlohmann::json jsoninfo;
+    if (!wanimate) {
+        jsoninfo["prompt"] = params.prompt + lora_meta;
+        if (*params.negative_prompt)
+            jsoninfo["negative_prompt"] = params.negative_prompt;
+        jsoninfo["seed"] = params.seed;
+        jsoninfo["cfg_scale"] = params.sample_params.guidance.txt_cfg;
+        jsoninfo["steps"] = params.width;
+        jsoninfo["width"] = params.height;
+        jsoninfo["height"] = params.sample_params.sample_steps;
+        jsoninfo["sampler_name"] = sd_sample_method_name(params.sample_params.sample_method);
+        if (params.clip_skip > 0)
+            jsoninfo["clip_skip"] = params.clip_skip;
+        jsoninfo["extra_generation_params"] = nlohmann::json();
+        jsoninfo["extra_generation_params"]["Schedule type"] = get_scheduler_name(params.sample_params.scheduler);
+        if (is_img2img)
+            jsoninfo["denoising_strength"] = params.strength;
+        if (sd_params->model_path.empty())
+            jsoninfo["sd_model_name"] = friendly_model_name(sd_params->diffusion_model_path);
+        else
+            jsoninfo["sd_model_name"] = friendly_model_name(sd_params->model_path);
+        jsoninfo["infotexts"] = nlohmann::json::array();
+        jsoninfo["all_prompts"] = nlohmann::json::array();
+        jsoninfo["all_negative_prompts"] = nlohmann::json::array();
+        jsoninfo["all_seeds"] = nlohmann::json::array();
+        jsoninfo["version"] = "KoboldCpp";
+    }
 
     for (int i = 0; i < params.batch_count; i++) {
         if (results[i].data == NULL) {
@@ -1403,7 +1431,7 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
         }
 
         //if multiframe, make a video
-        if(vid_req_frames>1 && generated_num_results>1 && is_vid_model)
+        if(wanimate)
         {
             if(!sd_is_quiet && sddebugmode==1)
             {
@@ -1415,7 +1443,6 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
             size_t out_len2 = 0;
             int status = 0;
             int status2 = 0;
-            wasanim = true;
 
             if(video_output_type==0 || video_output_type==2)
             {
@@ -1436,8 +1463,8 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
                     printf("Save Failed!\n");
                 }
             }
-            gen_data = "";
-            gen_data2 = "";
+            std::string gen_data;
+            std::string gen_data2;
             if(status==0 && out_len>0)
             {
                 gen_data = kcpp_base64_encode(out_data, out_len);
@@ -1451,46 +1478,49 @@ sd_generation_outputs sdtype_generate(const sd_generation_inputs inputs)
                 }
                 free(out_data2);
             }
+            jsonout["data"] = gen_data;
+            jsonout["data_extra"] = gen_data2;
+            jsonout["animated"] = true;
         }
         else
         {
             int out_data_len;
             unsigned char * png = nullptr;
+            std::string meta_image_params = get_image_params(params, lora_meta, i);
             if(inputs.upscale && upscaler_ctx != nullptr)
             {
                 printf("Upscaling output image...\n");
+                sd_image_t upscaled_image;
                 upscaled_image = upscale(upscaler_ctx, results[i], 2);
-                png = stbi_write_png_to_mem(upscaled_image.data, 0, upscaled_image.width, upscaled_image.height, upscaled_image.channel, &out_data_len, get_image_params(params, lora_meta).c_str());
+                png = stbi_write_png_to_mem(upscaled_image.data, 0, upscaled_image.width, upscaled_image.height, upscaled_image.channel, &out_data_len, meta_image_params.c_str());
+                free(upscaled_image.data);
             } else {
-                png = stbi_write_png_to_mem(results[i].data, 0, results[i].width, results[i].height, results[i].channel, &out_data_len, get_image_params(params, lora_meta).c_str());
+                png = stbi_write_png_to_mem(results[i].data, 0, results[i].width, results[i].height, results[i].channel, &out_data_len, meta_image_params.c_str());
             }
 
             if (png != NULL)
             {
-                gen_data = kcpp_base64_encode(png,out_data_len);
-                gen_data2 = "";
+                jsonout["data"] = kcpp_base64_encode(png,out_data_len);
                 free(png);
             }
+
+            jsoninfo["infotexts"][i] = meta_image_params;
+            jsoninfo["all_seeds"][i] = params.seed + i;
+            jsoninfo["all_prompts"][i] = params.prompt;
+            jsoninfo["all_negative_prompts"][i] = params.negative_prompt;
         }
 
         free(results[i].data);
         results[i].data = NULL;
     }
 
-    if(upscaled_image.data)
-    {
-        free(upscaled_image.data);
-        upscaled_image.data = nullptr;
+    if (!wanimate) {
+        jsonout["info"] = jsoninfo;
     }
 
     free(results);
 
-    nlohmann::json jsonout;
-    jsonout["data"] = gen_data;
-    jsonout["data_extra"] = gen_data2;
-    jsonout["animated"] = wasanim;
     recent_data = jsonout.dump();
-
     sd_generation_outputs output;
     output.data = recent_data.c_str();
     output.status = 1;

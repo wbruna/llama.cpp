@@ -2349,6 +2349,52 @@ def lora_map_name_to_path(request_list):
             result.append(out)
     return result
 
+def sdapi_default_info():
+    # dumped from an actual auto1111 txt2img sdapi call
+    # it's likely overkill to fill up every weird field here
+    return {
+        'prompt': '', 'negative_prompt': '', 'seed': 42, 'width': 512, 'height': 512,
+        'sampler_name': 'Euler', 'cfg_scale': 6.0, 'steps': 20, 'clip_skip': 1,
+        'denoising_strength': None,
+        # scheduler goes into: "extra_generation_params": {"Schedule type": "Karras"}
+        'extra_generation_params': {},
+        'all_prompts': [''], 'all_negative_prompts': [''], 'all_seeds': [42],
+        'subseed': 1, 'all_subseeds': [1],'subseed_strength': 0,
+        'batch_size': 1, 'restore_faces': False, 'face_restoration_model': None,
+        'sd_model_name': 'sd1.5', 'sd_model_hash': '0000000000', 'sd_vae_name': None, 'sd_vae_hash': None,
+        'seed_resize_from_w': -1, 'seed_resize_from_h': -1,
+        'index_of_first_image': 0, 'infotexts': [''],
+        'styles': [], 'job_timestamp': '20260319142854',
+        'is_using_inpainting_conditioning': False, 'version': 'v1.0.0'
+    }
+
+def sdapi_default_parameters():
+    # even more likely to be overkill to set everything
+    # not sure if the fields here should be "what we got from the client",
+    # "what we sent to the C++ layer", or "what the C++ layer filled up as defaults"?
+    return {
+        "prompt": "", "negative_prompt": "", "seed": -1,
+        "sampler_name": "Euler", "scheduler": None,
+        "steps": 20, "cfg_scale": 6.0, "width": 512, "height": 512,
+        "eta": None, "denoising_strength": None,
+        # no idea where to request clip_skip; at top level it's just ignored
+
+        "sampler_index": "Euler", # just a copy?
+        "styles": None, "restore_faces": None, "tiling": None, "do_not_save_samples": False,
+        "subseed": -1, "subseed_strength": 0, "seed_resize_from_h": -1, "seed_resize_from_w": -1,
+        "batch_size": 1, "n_iter": 1, "do_not_save_grid": False,
+        "s_min_uncond": None, "s_churn": None, "s_tmax": None, "s_tmin": None, "s_noise": None,
+        "override_settings": None, "override_settings_restore_afterwards": True,
+        "refiner_checkpoint": None, "refiner_switch_at": None, "disable_extra_networks": False,
+        "firstpass_image": None, "comments": None, "enable_hr": False,
+        "firstphase_width": 0, "firstphase_height": 0, "hr_scale": 2.0, "hr_upscaler": None,
+        "hr_second_pass_steps": 0, "hr_resize_x": 0, "hr_resize_y": 0,
+        "hr_checkpoint_name": None, "hr_sampler_name": None, "hr_scheduler": None,
+        "hr_prompt": "", "hr_negative_prompt": "", "force_task_id": None,
+        "script_name": None, "script_args": [],
+        "send_images": True, "save_images": False, "alwayson_scripts": {}, "infotext": None
+  }
+
 def sd_generate(genparams):
     global maxctx, args, currentusergenkey, totalgens, pendingabortkey, chatcompl_adapter
 
@@ -2359,6 +2405,8 @@ def sd_generate(genparams):
     forced_steplimit = tryparseint(adapter_obj.get("add_sd_step_limit", genparams.get("add_sd_step_limit",80)),80)
     forced_maxcfg = tryparsefloat(adapter_obj.get("add_sd_cfg_limit", genparams.get("add_sd_cfg_limit",25)),25)
     allow_remove_limits = tryparseint(adapter_obj.get("remove_limits", genparams.get("remove_limits",0)),0)
+
+    sdapi_parameters = sdapi_default_parameters()
 
     prompt = genparams.get("prompt", "high quality")
     negative_prompt = genparams.get("negative_prompt", "")
@@ -2418,6 +2466,20 @@ def sd_generate(genparams):
         extra_images_arr = [init_images]
         init_images = ""
 
+    seed = ((seed + 2**31) % 2**32) - 2**31
+
+    sdapi_parameters['prompt'] = prompt
+    sdapi_parameters['negative_prompt'] = negative_prompt
+    sdapi_parameters['sampler_name'] = sample_method
+    sdapi_parameters['sampler_index'] = sample_method
+    sdapi_parameters['scheduler'] = scheduler
+    sdapi_parameters['seed'] = seed
+    sdapi_parameters['steps'] = sample_steps
+    sdapi_parameters['cfg_scale'] = cfg_scale
+    sdapi_parameters['width'] = width
+    sdapi_parameters['height'] = height
+    sdapi_parameters['denoising_strength'] = denoising_strength # XXX None if txt2img?
+
     inputs = sd_generation_inputs()
     inputs.prompt = prompt.encode("UTF-8")
     inputs.negative_prompt = negative_prompt.encode("UTF-8")
@@ -2440,7 +2502,7 @@ def sd_generate(genparams):
     inputs.sample_steps = sample_steps
     inputs.width = width
     inputs.height = height
-    inputs.seed = ((seed + 2**31) % 2**32) - 2**31
+    inputs.seed = seed
     inputs.sample_method = sample_method.encode("UTF-8")
     inputs.scheduler = scheduler.encode("UTF-8")
     inputs.clip_skip = clip_skip
@@ -2461,8 +2523,13 @@ def sd_generate(genparams):
     data_main = parsed.get("data", "")
     data_extra = parsed.get("data_extra", "")
     animated = parsed.get("animated", False)
-    return {"animated": animated, "data":data_main, "data_extra":data_extra}
 
+    # note sdapi will expect this to be a string :-/
+    info = sdapi_default_info()
+    gen_info = parsed.get("info", {})
+    info.update(gen_info)
+
+    return {"animated": animated, "data":data_main, "data_extra":data_extra, "info": info, "parameters": sdapi_parameters}
 
 def whisper_load_model(model_filename):
     global args
@@ -5632,6 +5699,8 @@ Change Mode<br>
                         gendat = gen["data"]
                         genanim = gen["animated"]
                         gendatextra = gen["data_extra"]
+                        geninfo = gen["info"]
+                        genparameters = gen["parameters"]
                         genresp = None
                         if is_comfyui_imggen:
                             if gendat:
@@ -5642,13 +5711,15 @@ Change Mode<br>
                         elif is_oai_imggen:
                             genresp = (json.dumps({"created":int(time.time()),"data":[{"b64_json":gendat}],"background":"opaque","output_format":"png","size":"1024x1024","quality":"medium"}).encode())
                         else:
-                            genresp = (json.dumps({"images":[gendat],"parameters":{},"info":"","animated":genanim,"extra_data":gendatextra}).encode())
+                            genresp = (json.dumps({"images":[gendat],"parameters":genparameters,"info":json.dumps(geninfo),"animated":genanim,"extra_data":gendatextra}).encode())
                         self.send_response(200)
                         self.send_header('content-length', str(len(genresp)))
                         self.end_headers(content_type='application/json')
                         self.wfile.write(genresp)
                     except Exception as ex:
                         utfprint(ex,1)
+                        import traceback
+                        traceback.print_exc()
                         print("Generate Image: The response could not be sent, maybe connection was terminated?")
                         time.sleep(0.2) #short delay
                     return
