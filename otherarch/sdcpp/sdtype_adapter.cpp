@@ -773,6 +773,14 @@ static void kcpp_set_model_paths(sd_ctx_params_t& params, SDParams& sd_params, c
     bool has_llm_vision = (is_qwenimg || is_longcat || is_boogu || is_fibo2);
     bool has_tokenizer = (is_lens || is_pid || is_ming || is_mosi || is_llada);
 
+
+    if (toLowerCase(params.diffusion_model_path).find("moss-image-sft") != std::string::npos) {
+        std::swap(params.llm_path, params.t5xxl_path);
+        std::swap(params.llm_vision_path, params.clip_l_path);
+        kcpp_main_tokenizer = params.clip_g_path;
+        params.clip_g_path = "";
+    }
+
     //kcpp qol fallback: if a llm was loaded as t5 by mistake
     if(conditioner_is_llm && !path_empty(params.t5xxl_path))
     {
