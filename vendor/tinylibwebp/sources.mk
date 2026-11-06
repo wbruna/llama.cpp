@@ -83,8 +83,8 @@ TINYLIBWEBP_HEADERS := \
 	$(wildcard $(TINYLIBWEBP_ROOT)/src/webp/*.h) \
 	$(wildcard $(TINYLIBWEBP_ROOT)/sharpyuv/*.h)
 
-OBJS_TINYLIBWEBP := $(TINYLIBWEBP_SOURCES:.c=.o)
-LIB_TINYLIBWEBP := $(TINYLIBWEBP_ROOT)/libtinylibwebp.a
+OBJS_TINYLIBWEBP := $(addprefix $(OBJ_PREFIX),$(TINYLIBWEBP_SOURCES:.c=.o))
+LIB_TINYLIBWEBP := $(OBJ_PREFIX)libtinylibwebp.a
 
 # Do not inherit native CPU tuning: these objects are deliberately baseline C.
 TINYLIBWEBP_CFLAGS := $(filter-out -march=% -mtune=% -mcpu=% -mfpu=% -mavx% -msse% -mssse% -mfma -mf16c -funsafe-math-optimizations,$(CFLAGS))
